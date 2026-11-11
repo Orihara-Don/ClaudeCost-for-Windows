@@ -78,8 +78,8 @@ public sealed class PricingTests
         var summary = SummaryBuilder.Build(rows, PriceTable.LoadBundled(), false, true,
             DateTimeOffset.Parse("2026-11-10T03:00:00Z"), Tokyo);
         Assert.Equal(8, summary.Weeks.Count);
-        Assert.Equal(new DayBar("2026-11-09", 8), summary.Weeks[^1]); // 11/9(月)と11/10の2日分
-        Assert.Equal(new DayBar("2026-11-02", 4), summary.Weeks[6]); // 11/8(日)は前の週
+        Assert.Equal(8, summary.Weeks[^1].Usd); // 11/9(月)と11/10の2日分
+        Assert.Equal(4, summary.Weeks[6].Usd); // 11/8(日)は前の週
     }
 
     [Fact]

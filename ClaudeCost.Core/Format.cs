@@ -60,9 +60,24 @@ public static partial class Format
     [GeneratedRegex("[^A-Za-z0-9]")]
     private static partial Regex NonAlphanumeric();
 
-    /// <summary>"C--Users-me-develop-foo" のホーム部分を省いて表示する。</summary>
+    [GeneratedRegex("^-(home-[^-]+|root)(-|$)")]
+    private static partial Regex LinuxHome();
+
+    /// <summary>"wsl/Ubuntu/-home-me-foo" → ("foo", "Ubuntu")。WSL のものでなければ null。</summary>
+    public static (string Name, string Distro)? WslProject(string project)
+    {
+        if (!project.StartsWith(Wsl.ProjectPrefix, StringComparison.Ordinal)) return null;
+        var rest = project[Wsl.ProjectPrefix.Length..];
+        var slash = rest.IndexOf('/');
+        if (slash < 0) return null;
+        var name = LinuxHome().Replace(rest[(slash + 1)..], "", 1);
+        return (name.Length == 0 ? "~" : name, rest[..slash]);
+    }
+
+    /// <summary>"C--Users-me-develop-foo" のホーム部分を省いて表示する。WSL のものは "foo（WSL）"。</summary>
     public static string ProjectName(string directory, string home)
     {
+        if (WslProject(directory) is { } wsl) return $"{wsl.Name}（WSL）";
         var prefix = NonAlphanumeric().Replace(home, "-");
         return directory.StartsWith(prefix + "-", StringComparison.OrdinalIgnoreCase)
             ? directory[(prefix.Length + 1)..]

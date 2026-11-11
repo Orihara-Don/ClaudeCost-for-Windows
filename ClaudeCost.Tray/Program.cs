@@ -5,9 +5,13 @@ namespace ClaudeCost.Tray;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
-        using var mutex = new Mutex(true, @"Local\ClaudeCost.Tray", out var isFirst);
+        // 開発用: ClaudeCost.exe --snapshot out.png [--dark] で、集計したパネルを画像に保存して終わる
+        var snapshot = args.Length >= 2 && args[0] == "--snapshot"
+            ? new SnapshotRequest(Path.GetFullPath(args[1]), args.Contains("--dark"))
+            : null;
+        using var mutex = new Mutex(true, snapshot is null ? @"Local\ClaudeCost.Tray" : @"Local\ClaudeCost.Snapshot", out var isFirst);
         ApplicationConfiguration.Initialize();
         if (!isFirst)
         {
@@ -23,7 +27,7 @@ internal static class Program
 
         // 起動後の処理をメッセージループに積めるよう、先に同期コンテキストを用意する
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
-        Application.Run(new TrayContext());
+        Application.Run(new TrayContext(snapshot));
     }
 }
 
@@ -48,3 +52,5 @@ internal static class ErrorLog
         }
     }
 }
+
+internal sealed record SnapshotRequest(string Path, bool Dark);

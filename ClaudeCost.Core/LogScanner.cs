@@ -27,13 +27,16 @@ public sealed class LogScanner
         _timeZone = timeZone ?? TimeZoneInfo.Local;
     }
 
-    public ScanResult ScanOnce(string root, DateTimeOffset now, Action<ScanProgress?>? onProgress = null)
+    public ScanResult ScanOnce(string root, DateTimeOffset now, Action<ScanProgress?>? onProgress = null) =>
+        ScanOnce([new LogSource(root, "", "")], now, onProgress);
+
+    public ScanResult ScanOnce(IReadOnlyList<LogSource> sources, DateTimeOffset now, Action<ScanProgress?>? onProgress = null)
     {
         var store = _store ?? UsageStore.Load(_statePath);
         _store = null;
         try
         {
-            return Scan(store, root, now, onProgress);
+            return Scan(store, sources, now, onProgress);
         }
         finally
         {
@@ -41,24 +44,37 @@ public sealed class LogScanner
         }
     }
 
-    private ScanResult Scan(UsageStore store, string root, DateTimeOffset now, Action<ScanProgress?>? onProgress)
+    private sealed record LogFile(string Path, long Length, long Modified, string Project);
+
+    private ScanResult Scan(UsageStore store, IReadOnlyList<LogSource> sources, DateTimeOffset now, Action<ScanProgress?>? onProgress)
     {
         var isInitial = store.Cursors.Count == 0;
-        var files = ListLogFiles(root);
+        var files = new List<LogFile>();
+        // 一覧を取れた場所。取れなかった場所（WSL の停止など）の読み取り位置は消さずに残す
+        var listedRoots = new List<string>();
+        foreach (var source in sources)
+        {
+            if (ListLogFiles(source) is not { } listed) continue;
+            listedRoots.Add(EnsureTrailingSeparator(Path.GetFullPath(source.Root)));
+            files.AddRange(listed);
+        }
         var dirty = false;
         var foundUsage = false;
 
         for (var i = 0; i < files.Count; i++)
         {
             if (isInitial) onProgress?.Invoke(new ScanProgress(i, files.Count));
-            var (moved, usage) = Ingest(files[i], root, now, store);
+            var (moved, usage) = Ingest(files[i], now, store);
             dirty |= moved;
             foundUsage |= usage;
         }
         if (isInitial) onProgress?.Invoke(null);
 
-        var existing = new HashSet<string>(files, StringComparer.OrdinalIgnoreCase);
-        var stale = store.Cursors.Keys.Where(p => !existing.Contains(p)).ToList();
+        var existing = new HashSet<string>(files.Select(f => f.Path), StringComparer.OrdinalIgnoreCase);
+        var stale = store.Cursors.Keys
+            .Where(p => !existing.Contains(p)
+                && listedRoots.Any(r => p.StartsWith(r, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
         foreach (var path in stale) store.Cursors.Remove(path);
 
         var cutoff = (now - SeenRetention).ToUnixTimeSeconds();
@@ -97,25 +113,31 @@ public sealed class LogScanner
         return new ScanResult(store.Rows, files.Count > 0, warning);
     }
 
-    private static List<string> ListLogFiles(string root)
+    private static string EnsureTrailingSeparator(string path) =>
+        Path.EndsInDirectorySeparator(path) ? path : path + Path.DirectorySeparatorChar;
+
+    /// <summary>フォルダが無い・読めないときは null。</summary>
+    private static List<LogFile>? ListLogFiles(LogSource source)
     {
-        if (!Directory.Exists(root)) return new List<string>();
-        var options = new EnumerationOptions
-        {
-            RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
-            AttributesToSkip = FileAttributes.ReparsePoint,
-        };
+        var root = source.Root;
         try
         {
-            return Directory.EnumerateFiles(root, "*.jsonl", options)
-                .Select(Path.GetFullPath)
-                .Order(StringComparer.Ordinal)
+            if (!Directory.Exists(root)) return null;
+            var options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            };
+            // 大きさも一覧から取り、変わっていないファイルは開かずに済ませる（WSL のネットワーク越しでは開くのが遅い）
+            return new DirectoryInfo(root).EnumerateFiles("*.jsonl", options)
+                .Select(f => new LogFile(Path.GetFullPath(f.FullName), f.Length, f.LastWriteTimeUtc.Ticks, source.Prefix + ProjectName(f.FullName, root)))
+                .OrderBy(f => f.Path, StringComparer.Ordinal)
                 .ToList();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return new List<string>();
+            return null;
         }
     }
 
@@ -127,8 +149,12 @@ public sealed class LogScanner
     }
 
     /// <summary>読めないファイルは位置を進めず、次回に再試行する。</summary>
-    private (bool Moved, bool FoundUsage) Ingest(string file, string root, DateTimeOffset now, UsageStore store)
+    private (bool Moved, bool FoundUsage) Ingest(LogFile log, DateTimeOffset now, UsageStore store)
     {
+        var file = log.Path;
+        if (store.Cursors.TryGetValue(file, out var known) && known.Offset == log.Length && known.Modified == log.Modified)
+            return (false, false);
+
         FileStream stream;
         try
         {
@@ -166,7 +192,7 @@ public sealed class LogScanner
             }
             if (size == offset && !isReread) return (false, false);
 
-            var project = ProjectName(file, root);
+            var project = log.Project;
             var committed = offset;
             var foundUsage = false;
             var buffer = new byte[ChunkSize];
@@ -204,7 +230,7 @@ public sealed class LogScanner
                 // 読めたところまでを記録する
             }
 
-            store.Cursors[file] = new FileCursor(committed, identity);
+            store.Cursors[file] = new FileCursor(committed, identity, committed == log.Length ? log.Modified : null);
             return (committed != offset || isReread, foundUsage);
         }
     }

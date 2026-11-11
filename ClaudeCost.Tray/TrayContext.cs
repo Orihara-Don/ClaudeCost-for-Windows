@@ -22,9 +22,14 @@ internal sealed class TrayContext : ApplicationContext
     public bool IsScanning { get; private set; }
     public bool LogFormatWarning { get; private set; }
     public string? PricesError { get; private set; }
+    /// <summary>直近の集計で見つけたログの場所</summary>
+    public IReadOnlyList<LogSource> Sources { get; private set; } = [];
 
-    public TrayContext()
+    private readonly SnapshotRequest? _snapshot;
+
+    public TrayContext(SnapshotRequest? snapshot = null)
     {
+        _snapshot = snapshot;
         Settings = AppSettings.Load();
         _panel = new PanelForm(this);
 
@@ -51,6 +56,7 @@ internal sealed class TrayContext : ApplicationContext
         _watcher.Start(Settings.ProjectsDirectory);
         Refresh();
 
+        if (snapshot is not null) return;
         LaunchAtLogin.RefreshPathIfEnabled();
         SynchronizationContext.Current?.Post(_ => AskLaunchAtLoginOnce(), null);
     }
@@ -73,9 +79,14 @@ internal sealed class TrayContext : ApplicationContext
             do
             {
                 _rerunRequested = false;
-                var root = Settings.ProjectsDirectory;
-                var result = await Task.Run(() => _scanner.ScanOnce(root, DateTimeOffset.Now, progress =>
-                    ui?.Post(_ => OnProgress(progress), null)));
+                var settings = Settings;
+                var result = await Task.Run(() =>
+                {
+                    var sources = LogSources.Discover(settings.CustomLogPath, settings.IncludeWsl);
+                    Sources = sources;
+                    return _scanner.ScanOnce(sources, DateTimeOffset.Now, progress =>
+                        ui?.Post(_ => OnProgress(progress), null));
+                });
                 _lastResult = result;
                 LogFormatWarning = result.LogFormatWarning;
                 Rebuild();
@@ -88,6 +99,12 @@ internal sealed class TrayContext : ApplicationContext
         finally
         {
             IsScanning = false;
+            if (_snapshot is { } snap)
+            {
+                try { _panel.SaveSnapshot(snap.Path, snap.Dark ? Theme.Dark : Theme.Light); }
+                catch (Exception e) { ErrorLog.Write(e); }
+                Quit();
+            }
             _panel.RefreshIfVisible();
         }
     }
@@ -163,7 +180,7 @@ internal sealed class TrayContext : ApplicationContext
         if (settings == old) return;
         Settings = settings;
         Settings.Save();
-        if (settings.ProjectsDirectory != old.ProjectsDirectory)
+        if (settings.ProjectsDirectory != old.ProjectsDirectory || settings.IncludeWsl != old.IncludeWsl)
         {
             _watcher.Start(settings.ProjectsDirectory);
             Refresh();

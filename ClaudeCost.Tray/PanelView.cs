@@ -10,7 +10,7 @@ namespace ClaudeCost.Tray;
 /// </summary>
 internal sealed class PanelView : Control
 {
-    private const int LogicalWidth = 340;
+    private const int LogicalWidth = 360;
     private const int Pad = 16;
 
     private const string IconRefresh = "";
@@ -136,12 +136,22 @@ internal sealed class PanelView : Control
             y = DrawHeader(g, paint, f, summary, left, width, y);
             y = DrawTiles(g, paint, f, summary, left, width, y);
             y = DrawChart(g, paint, f, summary, left, width, y);
+            if (summary.Sources.Count > 1 || summary.Sources.Any(s => s.Label != "Windows"))
+            {
+                var max = summary.Sources.Max(s => s.Usd);
+                y = DrawBreakdown(g, paint, f, "環境別（今月）", summary.Sources.Select(s => (
+                    s.Label,
+                    _app.Amounts(s.Usd).Primary,
+                    TokensText(s.Tokens),
+                    max > 0 ? s.Usd / max : 0)).ToList(), left, width, y);
+            }
             if (summary.Models.Count > 0)
             {
                 var max = summary.Models.Max(m => m.Usd ?? 0);
                 y = DrawBreakdown(g, paint, f, "モデル別（今月）", summary.Models.Select(m => (
                     Format.ModelName(m.Model),
-                    m.Usd is { } usd ? _app.Amounts(usd).Primary : $"単価未登録 {Format.Tokens(m.Tokens)} tokens",
+                    m.Usd is { } usd ? _app.Amounts(usd).Primary : "単価未登録",
+                    TokensText(m.Tokens),
                     m.Usd is { } u && max > 0 ? u / max : 0)).ToList(), left, width, y);
             }
             if (summary.Projects.Count > 0)
@@ -151,6 +161,7 @@ internal sealed class PanelView : Control
                 y = DrawBreakdown(g, paint, f, "プロジェクト別（今月・上位5件）", summary.Projects.Select(p => (
                     Format.ProjectName(p.Project, home),
                     _app.Amounts(p.Usd).Primary,
+                    TokensText(p.Tokens),
                     max > 0 ? p.Usd / max : 0)).ToList(), left, width, y);
             }
             y = DrawWarnings(g, paint, f, summary, left, width, y);
@@ -192,22 +203,20 @@ internal sealed class PanelView : Control
         var hero = TextSize(g, primary, f.Hero);
         if (paint) Put(g, primary, f.Hero, _theme.Text, new Rectangle(left - S(1), y, width, hero.Height));
         y += hero.Height;
-        if (secondary is not null)
-        {
-            var sub = TextSize(g, secondary, f.Body);
-            if (paint) Put(g, secondary, f.Body, _theme.SubText, new Rectangle(left, y, width, sub.Height));
-            y += sub.Height;
-        }
+        var subText = secondary is null ? TokensText(s.Today.Tokens) : $"{secondary}  ・  {TokensText(s.Today.Tokens)}";
+        var sub = TextSize(g, subText, f.Body);
+        if (paint) Put(g, subText, f.Body, _theme.SubText, new Rectangle(left, y, width, sub.Height));
+        y += sub.Height;
         return y + S(14);
     }
 
     private int DrawTiles(Graphics g, bool paint, Fonts f, Summary s, int left, int width, int y)
     {
-        var tiles = new (string Title, double Usd, bool Danger)[]
+        var tiles = new (string Title, double Usd, string Note, bool Danger)[]
         {
-            ("今週", s.Weeks.Count > 0 ? s.Weeks[^1].Usd : 0, false),
-            ("今月", s.MonthUsd, false),
-            ("月末見込み", s.ForecastUsd, _app.IsOverBudget),
+            ("今週", s.Weeks.Count > 0 ? s.Weeks[^1].Usd : 0, s.Weeks.Count > 0 ? TokensText(s.Weeks[^1].Tokens) : "", false),
+            ("今月", s.MonthUsd, TokensText(s.MonthTokens), false),
+            ("月末見込み", s.ForecastUsd, _app.Settings.MonthlyBudget is { } b ? "予算 " + _app.Amounts(b).Primary : "", _app.IsOverBudget),
         };
         var gap = S(8);
         var inner = S(10);
@@ -215,13 +224,13 @@ internal sealed class PanelView : Control
         var captionHeight = TextSize(g, "今", f.Caption).Height;
         var statHeight = TextSize(g, "$0", f.Stat).Height;
         var hasSecondary = _app.Amounts(0).Secondary is not null;
-        var tileHeight = inner * 2 + captionHeight + S(2) + statHeight + (hasSecondary ? captionHeight : 0);
+        var tileHeight = inner * 2 + captionHeight + S(2) + statHeight + (hasSecondary ? captionHeight : 0) + S(2) + captionHeight;
 
         if (paint)
         {
             for (var i = 0; i < tiles.Length; i++)
             {
-                var (title, usd, danger) = tiles[i];
+                var (title, usd, note, danger) = tiles[i];
                 var rect = new Rectangle(left + i * (tileWidth + gap), y, tileWidth, tileHeight);
                 Drawing.FillRounded(g, _theme.Card, rect, S(8));
                 Drawing.StrokeRounded(g, _theme.CardBorder, new RectangleF(rect.X, rect.Y, rect.Width - 1, rect.Height - 1), S(8));
@@ -234,7 +243,11 @@ internal sealed class PanelView : Control
                 Put(g, primary, f.Stat, danger ? _theme.Danger : _theme.Text, new Rectangle(x, ty, w, statHeight), TextFormatFlags.EndEllipsis);
                 ty += statHeight;
                 if (secondary is not null)
+                {
                     Put(g, secondary, f.Caption, _theme.SubText, new Rectangle(x, ty, w, captionHeight), TextFormatFlags.EndEllipsis);
+                    ty += captionHeight;
+                }
+                Put(g, note, f.Caption, _theme.Faint, new Rectangle(x, ty + S(2), w, captionHeight), TextFormatFlags.EndEllipsis);
             }
         }
         return y + tileHeight + S(20);
@@ -347,6 +360,7 @@ internal sealed class PanelView : Control
         var title = _showsWeeks ? $"{Format.ShortDay(bar.Date)} からの週" : Format.ShortDay(bar.Date);
         var (primary, secondary) = _app.Amounts(bar.Usd);
         var amount = secondary is null ? primary : $"{primary}  {secondary}";
+        title += "  ・  " + TokensText(bar.Tokens);
         var titleSize = TextSize(g, title, f.Caption);
         var amountSize = TextSize(g, amount, f.BodyStrong);
         var pad = S(8);
@@ -367,21 +381,27 @@ internal sealed class PanelView : Control
     }
 
     private int DrawBreakdown(Graphics g, bool paint, Fonts f, string title,
-        List<(string Name, string Value, double Share)> rows, int left, int width, int y)
+        List<(string Name, string Value, string Detail, double Share)> rows, int left, int width, int y)
     {
         var titleHeight = TextSize(g, title, f.Caption).Height;
         if (paint) Put(g, title, f.Caption, _theme.SubText, new Rectangle(left, y, width, titleHeight));
         y += titleHeight + S(8);
 
         var bodyHeight = TextSize(g, "あ", f.Body).Height;
-        foreach (var (name, value, share) in rows)
+        var captionHeight = TextSize(g, "0", f.Caption).Height;
+        var valueColumn = S(64);
+        var detailColumn = S(76);
+        foreach (var (name, value, detail, share) in rows)
         {
             if (paint)
             {
-                var valueWidth = TextSize(g, value, f.Body).Width;
-                Put(g, name, f.Body, _theme.Text, new Rectangle(left, y, width - valueWidth - S(12), bodyHeight),
+                var valueWidth = Math.Max(valueColumn, TextSize(g, value, f.BodyStrong).Width);
+                var nameWidth = width - valueWidth - detailColumn - S(8);
+                Put(g, FitKeepingEnd(g, name, f.Body, nameWidth), f.Body, _theme.Text, new Rectangle(left, y, nameWidth, bodyHeight),
                     TextFormatFlags.EndEllipsis);
-                Put(g, value, f.Body, _theme.Text, new Rectangle(left, y, width, bodyHeight), TextFormatFlags.Right);
+                Put(g, detail, f.Caption, _theme.Faint,
+                    new Rectangle(left + nameWidth, y + bodyHeight - captionHeight - S(1), detailColumn, captionHeight), TextFormatFlags.Right);
+                Put(g, value, f.BodyStrong, _theme.Text, new Rectangle(left, y, width, bodyHeight), TextFormatFlags.Right);
                 var track = new RectangleF(left, y + bodyHeight + S(4), width, S(3));
                 Drawing.FillRounded(g, _theme.Track, track, S(1.5f));
                 if (share > 0)
@@ -430,7 +450,7 @@ internal sealed class PanelView : Control
         if (paint)
         {
             using var pen = new Pen(_theme.Separator);
-            g.DrawLine(pen, 0, y, Width, y);
+            g.DrawLine(pen, 0, y, S(LogicalWidth), y);
         }
         y += S(8);
 
@@ -458,12 +478,44 @@ internal sealed class PanelView : Control
         {
             var status = _app.IsScanning
                 ? "更新中…"
-                : _app.Summary is { } s ? $"{s.GeneratedAt.LocalDateTime:H:mm} 更新 ・ 金額は推計値です" : "";
+                : _app.Summary is { } s ? $"{s.GeneratedAt.LocalDateTime:H:mm} 更新{SourcesText()} ・ 推計値" : "";
             var height = TextSize(g, "0", f.Caption).Height;
             Put(g, status, f.Caption, _theme.Faint,
                 new Rectangle(left, y + (buttonSize - height) / 2, width - buttonSize * 3, height), TextFormatFlags.EndEllipsis);
         }
         return y + buttonSize + S(10);
+    }
+
+    private static string TokensText(long tokens) => Format.Tokens(tokens) + " tokens";
+
+    /// <summary>プロジェクト名は末尾（フォルダ名）が大事なので、入りきらないときは頭を「…」で省く。</summary>
+    private static string FitKeepingEnd(Graphics g, string text, Font font, int width)
+    {
+        if (TextSize(g, text, font).Width <= width) return text;
+        for (var start = 1; start < text.Length; start++)
+        {
+            var candidate = "…" + text[start..];
+            if (TextSize(g, candidate, font).Width <= width) return candidate;
+        }
+        return "…";
+    }
+
+    /// <summary>WSL も読んでいるときは " ・ Windows + WSL Ubuntu" のように出す。</summary>
+    private string SourcesText()
+    {
+        var labels = _app.Sources.Select(s => s.Label).Distinct().ToList();
+        return labels.Any(l => l != "Windows") ? " ・ " + string.Join(" + ", labels) : "";
+    }
+
+    /// <summary>開発用: 今の内容を画像に描く。</summary>
+    public Bitmap RenderSnapshot()
+    {
+        var size = Measure();
+        var bitmap = new Bitmap(size.Width, size.Height);
+        using var g = Graphics.FromImage(bitmap);
+        g.Clear(_theme.Background);
+        Draw(g, paint: true);
+        return bitmap;
     }
 
     // MARK: マウス

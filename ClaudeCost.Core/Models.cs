@@ -24,7 +24,8 @@ public sealed record UsageRow(string Day, string Model, string Project, TokenCou
 
 public readonly record struct UsageKey(string Day, string Model, string Project);
 
-public sealed record FileCursor(long Offset, string Identity);
+/// <summary>Modified は最後に読んだときの更新日時（UTC ticks）。大きさと更新日時が同じなら開かずに済ませる。</summary>
+public sealed record FileCursor(long Offset, string Identity, long? Modified = null);
 
 public sealed record ScanProgress(int Done, int Total);
 

@@ -13,6 +13,7 @@ internal sealed class SettingsForm : Form
     private readonly TextBox _budget = new() { PlaceholderText = "未設定" };
     private readonly CheckBox _launchAtLogin = new() { Text = "Windows へのサインイン時に起動", AutoSize = true };
     private readonly TextBox _logPath = new() { ReadOnly = true };
+    private readonly CheckBox _includeWsl = new() { Text = "WSL 内の Claude Code のログも集計する", AutoSize = true };
     private string _customLogPath;
 
     private static readonly (CurrencyDisplay Value, string Label)[] Currencies =
@@ -44,6 +45,7 @@ internal sealed class SettingsForm : Form
         _regional.Checked = s.RegionalPricing;
         _budget.Text = s.MonthlyBudget?.ToString(CultureInfo.InvariantCulture) ?? "";
         _launchAtLogin.Checked = LaunchAtLogin.IsEnabled;
+        _includeWsl.Checked = s.IncludeWsl;
         UpdateLogPath();
 
         var table = new TableLayoutPanel
@@ -72,6 +74,9 @@ internal sealed class SettingsForm : Form
             }));
         _logPath.Width = LogicalToDeviceUnits(220);
         AddRow(table, "ログの場所", logButtons);
+        AddRow(table, "", _includeWsl);
+        AddRow(table, "", Note("起動中のディストリビューションの ~/.claude/projects を \\\\wsl.localhost 経由で読みます。停止中のものは起動しません。"));
+        AddRow(table, "検出した場所", Note(DetectedSources()));
         AddRow(table, "単価表", MakeButton("prices.json を開く", () => _app.OpenPrices()));
         AddRow(table, "アプリ", MakeButton("ClaudeCost を終了", () =>
         {
@@ -135,6 +140,11 @@ internal sealed class SettingsForm : Form
         return button;
     }
 
+    private string DetectedSources() =>
+        _app.Sources.Count == 0
+            ? "（まだ集計していません）"
+            : string.Join(Environment.NewLine, _app.Sources.Select(s => $"{s.Label}: {s.Root}"));
+
     private void UpdateLogPath()
     {
         _logPath.Text = AppPaths.ProjectsDirectory(_customLogPath);
@@ -189,6 +199,7 @@ internal sealed class SettingsForm : Form
             RegionalPricing = _regional.Checked,
             MonthlyBudget = budget,
             CustomLogPath = _customLogPath,
+            IncludeWsl = _includeWsl.Checked,
         });
         Close();
     }

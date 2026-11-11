@@ -192,6 +192,53 @@ public sealed class LogScannerTests : IDisposable
     }
 
     [Fact]
+    public void MultipleSourcesArePrefixedAndDeduped()
+    {
+        var wslRoot = Path.Combine(_directory, "wsl-projects");
+        var wslFile = Path.Combine(wslRoot, "-home-me-app", "s.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(wslFile)!);
+        Append(Line("w") + "\n" + Line("1") + "\n", wslFile);
+        Append(Line("1") + "\n", LogFile());
+
+        var sources = new[] { new LogSource(_root, "", "Windows"), new LogSource(wslRoot, "wsl/Ubuntu/", "WSL Ubuntu") };
+        var rows = Scanner().ScanOnce(sources, _now).Rows;
+
+        Assert.Equal(20, rows.Sum(r => r.Tokens.Input)); // 同じメッセージは片方だけ数える
+        Assert.Contains(rows, r => r.Project == "wsl/Ubuntu/-home-me-app");
+        Assert.Contains(rows, r => r.Project == "proj");
+    }
+
+    [Fact]
+    public void UnreachableSourceKeepsCursors()
+    {
+        var wslRoot = Path.Combine(_directory, "wsl-projects");
+        var wslFile = Path.Combine(wslRoot, "p", "s.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(wslFile)!);
+        Append(Line("old", time: "2026-09-01T00:00:00.000Z") + "\n", wslFile);
+        var scanner = Scanner();
+        var both = new[] { new LogSource(_root, "", ""), new LogSource(wslRoot, "wsl/U/", "") };
+        Assert.Equal(10, TotalInput(scanner.ScanOnce(both, _now)));
+
+        // ディストリビューションが止まって一覧に出てこない間も、読み取り位置は残る
+        Assert.Equal(10, TotalInput(scanner.ScanOnce(new[] { new LogSource(_root, "", "") }, _now)));
+        Assert.Equal(10, TotalInput(scanner.ScanOnce(both, _now)));
+    }
+
+    [Fact]
+    public void ParsesWslDistroList()
+    {
+        Assert.Equal(new[] { "Ubuntu", "Debian" }, Wsl.ParseDistroList("Ubuntu\r\ndocker-desktop\r\nDebian\r\n\r\n").ToArray());
+    }
+
+    [Fact]
+    public void WslProjectNames()
+    {
+        Assert.Equal("app（WSL）", Format.ProjectName("wsl/Ubuntu/-home-me-app", @"C:\Users\me"));
+        Assert.Equal("~（WSL）", Format.ProjectName("wsl/Ubuntu/-home-me", @"C:\Users\me"));
+        Assert.Equal("srv-x（WSL）", Format.ProjectName("wsl/Debian/-root-srv-x", @"C:\Users\me"));
+    }
+
+    [Fact]
     public void CrlfLinesAreRead()
     {
         Append(Line("1") + "\r\n" + Line("2") + "\r\n", LogFile());

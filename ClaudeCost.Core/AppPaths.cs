@@ -2,9 +2,11 @@ namespace ClaudeCost.Core;
 
 public static class AppPaths
 {
-    /// <summary>%LOCALAPPDATA%\ClaudeCost（集計結果。端末ごとのデータ）</summary>
+    /// <summary>%LOCALAPPDATA%\ClaudeCost（集計結果。端末ごとのデータ）。開発用に CLAUDECOST_DATA_DIR で変えられる。</summary>
     public static string DataDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClaudeCost");
+        Environment.GetEnvironmentVariable("CLAUDECOST_DATA_DIR") is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClaudeCost");
 
     public static string State => Path.Combine(DataDirectory, "state.json");
     public static string Settings => Path.Combine(DataDirectory, "settings.json");

@@ -15,6 +15,8 @@ internal sealed record AppSettings
     /// <summary>空なら既定の場所を使う</summary>
     public string CustomLogPath { get; init; } = "";
     public bool DidAskLaunchAtLogin { get; init; }
+    /// <summary>起動中の WSL ディストリビューション内のログも集計する</summary>
+    public bool IncludeWsl { get; init; } = true;
 
     [JsonIgnore]
     public string ProjectsDirectory => AppPaths.ProjectsDirectory(CustomLogPath);

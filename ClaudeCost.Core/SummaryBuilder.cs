@@ -1,10 +1,13 @@
 namespace ClaudeCost.Core;
 
-public sealed record DayBar(string Date, double Usd);
+public sealed record DayBar(string Date, double Usd, long Tokens = 0);
 
 public sealed record ModelRow(string Model, double? Usd, long Tokens);
 
-public sealed record ProjectRow(string Project, double Usd);
+public sealed record ProjectRow(string Project, double Usd, long Tokens = 0);
+
+/// <summary>Windows／WSL のディストリビューションごとの今月の合計。</summary>
+public sealed record SourceRow(string Label, double Usd, long Tokens);
 
 /// <summary>パネルとトレイの表示に使う集計結果。金額はセント単位に丸め済み（内訳を除く）。</summary>
 public sealed record Summary(
@@ -20,7 +23,11 @@ public sealed record Summary(
     IReadOnlyList<ModelRow> Models,
     IReadOnlyList<ProjectRow> Projects,
     IReadOnlyList<string> UnpricedModels,
-    bool LogsFound);
+    bool LogsFound)
+{
+    public long MonthTokens { get; init; }
+    public IReadOnlyList<SourceRow> Sources { get; init; } = [];
+}
 
 public static class SummaryBuilder
 {
@@ -28,6 +35,10 @@ public static class SummaryBuilder
     public const int WeekCount = 8;
 
     private static double Cents(double value) => Math.Round(value * 100, MidpointRounding.AwayFromZero) / 100;
+
+    /// <summary>"wsl/Ubuntu/..." → "WSL Ubuntu"、それ以外は "Windows"。</summary>
+    public static string SourceLabel(string project) =>
+        Format.WslProject(project) is { } wsl ? "WSL " + wsl.Distro : "Windows";
 
     public static Summary Build(
         IEnumerable<UsageRow> rows,
@@ -43,38 +54,51 @@ public static class SummaryBuilder
         var monthKey = DayKey.Month(todayKey);
 
         var perDay = new Dictionary<string, double>();
+        var perDayTokens = new Dictionary<string, long>();
         var perModel = new Dictionary<string, (double? Usd, long Tokens)>();
-        var perProject = new Dictionary<string, double>();
+        var perProject = new Dictionary<string, (double Usd, long Tokens)>();
+        var perSource = new Dictionary<string, (double Usd, long Tokens)>();
+        long monthTokens = 0;
 
         foreach (var row in rows)
         {
             var cost = prices.Cost(row.Tokens, row.Model, regionalPricing);
             if (cost is { } c) perDay[row.Day] = perDay.GetValueOrDefault(row.Day) + c;
+            perDayTokens[row.Day] = perDayTokens.GetValueOrDefault(row.Day) + row.Tokens.Total;
             if (DayKey.Month(row.Day) != monthKey) continue;
+            monthTokens += row.Tokens.Total;
             var entry = perModel.GetValueOrDefault(row.Model, (null, 0));
             entry.Tokens += row.Tokens.Total;
-            if (cost is { } c2)
-            {
-                entry.Usd = (entry.Usd ?? 0) + c2;
-                perProject[row.Project] = perProject.GetValueOrDefault(row.Project) + c2;
-            }
+            if (cost is { } c2) entry.Usd = (entry.Usd ?? 0) + c2;
             perModel[row.Model] = entry;
+
+            var project = perProject.GetValueOrDefault(row.Project);
+            perProject[row.Project] = (project.Usd + (cost ?? 0), project.Tokens + row.Tokens.Total);
+            var label = SourceLabel(row.Project);
+            var source = perSource.GetValueOrDefault(label);
+            perSource[label] = (source.Usd + (cost ?? 0), source.Tokens + row.Tokens.Total);
         }
 
         var monthUsd = perDay.Where(e => DayKey.Month(e.Key) == monthKey).Sum(e => e.Value);
         var forecast = monthUsd / today.Day * DateTime.DaysInMonth(today.Year, today.Month);
 
+        DayBar Day(string key) => new(key, Cents(perDay.GetValueOrDefault(key)), perDayTokens.GetValueOrDefault(key));
+
         var days = Enumerable.Range(0, DayCount).Reverse()
-            .Select(offset => DayKey.Of(today.AddDays(-offset)))
-            .Select(key => new DayBar(key, Cents(perDay.GetValueOrDefault(key))))
+            .Select(offset => Day(DayKey.Of(today.AddDays(-offset))))
             .ToList();
 
         var thisMonday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
         var weeks = Enumerable.Range(0, WeekCount).Reverse()
             .Select(offset => thisMonday.AddDays(-7 * offset))
-            .Select(start => new DayBar(
-                DayKey.Of(start),
-                Cents(Enumerable.Range(0, 7).Sum(d => perDay.GetValueOrDefault(DayKey.Of(start.AddDays(d)))))))
+            .Select(start =>
+            {
+                var keys = Enumerable.Range(0, 7).Select(d => DayKey.Of(start.AddDays(d))).ToList();
+                return new DayBar(
+                    DayKey.Of(start),
+                    Cents(keys.Sum(k => perDay.GetValueOrDefault(k))),
+                    keys.Sum(k => perDayTokens.GetValueOrDefault(k)));
+            })
             .ToList();
 
         var models = perModel
@@ -84,15 +108,22 @@ public static class SummaryBuilder
             .ToList();
 
         var projects = perProject
-            .Select(e => new ProjectRow(e.Key, e.Value))
+            .Where(e => e.Value.Usd > 0)
+            .Select(e => new ProjectRow(e.Key, e.Value.Usd, e.Value.Tokens))
             .OrderByDescending(r => r.Usd)
             .ThenByDescending(r => r.Project, StringComparer.Ordinal)
             .Take(5)
             .ToList();
 
+        var sources = perSource
+            .Select(e => new SourceRow(e.Key, e.Value.Usd, e.Value.Tokens))
+            .OrderByDescending(r => r.Usd)
+            .ThenBy(r => r.Label, StringComparer.Ordinal)
+            .ToList();
+
         return new Summary(
             GeneratedAt: now,
-            Today: new DayBar(todayKey, Cents(perDay.GetValueOrDefault(todayKey))),
+            Today: Day(todayKey),
             Month: monthKey,
             MonthUsd: Cents(monthUsd),
             ForecastUsd: Cents(forecast),
@@ -101,6 +132,10 @@ public static class SummaryBuilder
             Models: models,
             Projects: projects,
             UnpricedModels: models.Where(m => m.Usd is null).Select(m => m.Model).Order(StringComparer.Ordinal).ToList(),
-            LogsFound: logsFound);
+            LogsFound: logsFound)
+        {
+            MonthTokens = monthTokens,
+            Sources = sources,
+        };
     }
 }

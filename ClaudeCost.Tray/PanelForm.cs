@@ -89,6 +89,14 @@ internal sealed class PanelForm : Form
         if (Visible) Render();
     }
 
+    /// <summary>開発用: 指定のテーマでパネルを PNG に保存する。</summary>
+    public void SaveSnapshot(string path, Theme theme)
+    {
+        _view.SetTheme(theme);
+        using var bitmap = _view.RenderSnapshot();
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
     private void ApplyTheme()
     {
         var theme = Theme.Current();
