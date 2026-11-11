@@ -46,15 +46,6 @@ Mac でも `brew install dotnet` で SDK を入れれば、同じコマンドで
 
 テストは `dotnet test ClaudeCost.Core.Tests` で実行できます。
 
-### リリースの作り方
-
-`v1.2.3` の形のタグを push すると、GitHub Actions（`.github/workflows/release.yml`）がテストと exe のビルドをして、リリースに `ClaudeCost.exe` を添付します。exe のバージョンはタグから付きます。
-
-```powershell
-git tag v1.2.3
-git push origin v1.2.3
-```
-
 ## 使い方
 
 - 通知領域のアイコンにマウスを乗せると、今日と今月の金額が出ます。
