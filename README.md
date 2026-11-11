@@ -10,11 +10,18 @@ Claude Code の利用料金の推計を、Windows の通知領域（タスクバ
 ## 必要なもの
 
 - Windows 10 / 11（x64）
-- ビルドする場合は [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- .NET のインストールは不要です。
 
-## ビルド手順
+## インストール
 
-1. .NET 10 SDK を入れます。
+1. [Releases](https://github.com/Orihara-Don/ClaudeCost-for-Windows/releases/latest) から `ClaudeCost.exe` をダウンロードします。
+2. 好きな場所（例: `%LOCALAPPDATA%\Programs\ClaudeCost`）に置いて開きます。
+
+更新するときは、通知領域のアイコンを右クリックして「終了」してから、新しい exe で置き換えて開きます。集計結果と設定はそのまま引き継がれます。
+
+## 自分でビルドする場合
+
+1. [.NET 10 SDK](https://dotnet.microsoft.com/download) を入れます。
 
    ```powershell
    winget install Microsoft.DotNet.SDK.10
@@ -38,6 +45,15 @@ Claude Code の利用料金の推計を、Windows の通知領域（タスクバ
 Mac でも `brew install dotnet` で SDK を入れれば、同じコマンドで Windows 用の exe を作れます。
 
 テストは `dotnet test ClaudeCost.Core.Tests` で実行できます。
+
+### リリースの作り方
+
+`v1.2.3` の形のタグを push すると、GitHub Actions（`.github/workflows/release.yml`）がテストと exe のビルドをして、リリースに `ClaudeCost.exe` を添付します。exe のバージョンはタグから付きます。
+
+```powershell
+git tag v1.2.3
+git push origin v1.2.3
+```
 
 ## 使い方
 
