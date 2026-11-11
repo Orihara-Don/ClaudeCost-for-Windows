@@ -1,0 +1,26 @@
+{
+  "models": {
+    "claude-fable-5-2": { "input": 8, "output": 40, "cacheRead": 0.20, "regional": true },
+    "claude-mythos-5-2": { "input": 8, "output": 40, "cacheRead": 0.20, "regional": true },
+    "claude-fable-5-1": { "input": 10, "output": 50, "cacheRead": 0.25, "regional": true },
+    "claude-mythos-5-1": { "input": 10, "output": 50, "cacheRead": 0.25, "regional": true },
+    "claude-fable-5": { "input": 10, "output": 50, "cacheRead": 1.00, "regional": true },
+    "claude-mythos-5": { "input": 10, "output": 50, "cacheRead": 1.00, "regional": true },
+    "claude-opus-5-5": { "input": 4, "output": 20, "cacheRead": 0.20, "regional": true },
+    "claude-opus-5": { "input": 5, "output": 25, "cacheRead": 0.50, "regional": true },
+    "claude-opus-4-8": { "input": 5, "output": 25, "cacheRead": 0.50, "regional": true },
+    "claude-opus-4-7": { "input": 5, "output": 25, "cacheRead": 0.50, "regional": true },
+    "claude-opus-4-6": { "input": 5, "output": 25, "cacheRead": 0.50, "regional": true },
+    "claude-opus-4-5": { "input": 5, "output": 25, "cacheRead": 0.50, "regional": true },
+    "claude-opus-4-1": { "input": 15, "output": 75, "cacheRead": 1.50, "regional": false },
+    "claude-opus-4": { "input": 15, "output": 75, "cacheRead": 1.50, "regional": false },
+    "claude-sonnet-5-5": { "input": 2, "output": 10, "cacheRead": 0.10, "regional": true },
+    "claude-sonnet-5": { "input": 2, "output": 10, "cacheRead": 0.20, "regional": true },
+    "claude-sonnet-4-6": { "input": 3, "output": 15, "cacheRead": 0.30, "regional": true },
+    "claude-sonnet-4-5": { "input": 3, "output": 15, "cacheRead": 0.30, "regional": true },
+    "claude-sonnet-4": { "input": 3, "output": 15, "cacheRead": 0.30, "regional": false },
+    "claude-haiku-5-5": { "input": 0.10, "output": 0.50, "cacheRead": 0.01, "regional": true },
+    "claude-haiku-5-5-over-100k": { "input": 0.50, "output": 2.50, "cacheRead": 0.05, "regional": true },
+    "claude-haiku-4-5": { "input": 1, "output": 5, "cacheRead": 0.10, "regional": true }
+  }
+}
